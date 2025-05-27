@@ -40,12 +40,12 @@ class JanusSipWebSocketClient(
     private var isPluginAttached = false
     private var currentCallId: String? = null
 
-    // SIP Configuration
-    private var sipUsername: String = ""
-    private var sipAuthUser: String = ""
-    private var sipDisplayName: String = ""
-    private var sipSecret: String = ""
-    private var sipProxy: String = ""
+    // SIP Configuration - Updated to match working payload format
+    private var sipUsername: String = ""      // This will be "sip:1007@103.209.42.30"
+    private var sipAuthUser: String = ""      // This will be "1007"
+    private var sipDisplayName: String = ""   // This will be "1007"
+    private var sipSecret: String = ""        // This will be "1234"
+    private var sipProxy: String = ""         // This will be "sip:103.209.42.30:5060"
 
     init {
         connectionLostTimeout = 30
@@ -264,14 +264,25 @@ class JanusSipWebSocketClient(
         }
     }
 
+    // Updated setSipConfig method to match the working payload format exactly
     fun setSipConfig(username: String, password: String, server: String, displayName: String) {
+        // Format exactly as shown in working payload:
+        // username = "1007", server = "103.209.42.30" -> sipUsername = "sip:1007@103.209.42.30"
         this.sipUsername = "sip:$username@$server"
-        this.sipAuthUser = username
-        this.sipDisplayName = displayName
-        this.sipSecret = password
-        this.sipProxy = "sip:$server:5060"
+        this.sipAuthUser = username  // Just the username part: "1007"
+        this.sipDisplayName = displayName  // Display name: "1007"
+        this.sipSecret = password  // Password: "1234"
+        this.sipProxy = "sip:$server:5060"  // Proxy: "sip:103.209.42.30:5060"
+
+        Log.d(TAG, "SIP Config set:")
+        Log.d(TAG, "  sipUsername: $sipUsername")
+        Log.d(TAG, "  sipAuthUser: $sipAuthUser")
+        Log.d(TAG, "  sipDisplayName: $sipDisplayName")
+        Log.d(TAG, "  sipSecret: $sipSecret")
+        Log.d(TAG, "  sipProxy: $sipProxy")
     }
 
+    // Updated registerSipUser method to match working payload format exactly
     private fun registerSipUser() {
         try {
             val register = JSONObject()
@@ -282,13 +293,18 @@ class JanusSipWebSocketClient(
 
             val body = JSONObject()
             body.put("request", "register")
-            body.put("username", sipUsername)
-            body.put("authuser", sipAuthUser)
-            body.put("display_name", sipDisplayName)
-            body.put("secret", sipSecret)
-            body.put("proxy", sipProxy)
+            body.put("username", sipUsername)        // "sip:1007@103.209.42.30"
+            body.put("authuser", sipAuthUser)        // "1007"
+            body.put("display_name", sipDisplayName) // "1007"
+            body.put("secret", sipSecret)            // "1234"
+            body.put("proxy", sipProxy)              // "sip:103.209.42.30:5060"
 
             register.put("body", body)
+
+            Log.d(TAG, "Sending SIP register request:")
+            Log.d(TAG, "  Request payload: ${register.toString()}")
+            Log.d(TAG, "  Body: ${body.toString()}")
+
             send(register.toString())
             Log.d(TAG, "Sent SIP register request for: $sipUsername")
         } catch (e: JSONException) {

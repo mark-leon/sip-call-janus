@@ -177,6 +177,10 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
                 runOnUiThread { statusTextView.text = "Connecting to Janus server..." }
 
                 webSocketClient = JanusSipWebSocketClient(serverUri, this@MainActivity, httpHeaders)
+
+                // IMPORTANT: Set SIP config BEFORE connecting - this ensures the values are set correctly
+                webSocketClient?.setSipConfig(username, password, server, displayName)
+
                 webSocketClient?.connectWithTimeout()
             } catch (e: Exception) {
                 runOnUiThread { statusTextView.text = "Connection failed: ${e.message}" }
