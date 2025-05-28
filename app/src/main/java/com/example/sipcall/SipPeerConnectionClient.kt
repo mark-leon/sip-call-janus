@@ -60,84 +60,159 @@ class SipPeerConnectionClient(
         }
     }
 
-    fun createPeerConnection() {
-        try {
-            val iceServers = listOf(
-                PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-                PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
-            )
+//    fun createPeerConnection() {
+//        try {
+//            val iceServers = listOf(
+//                PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+//                PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer()
+//            )
+//
+//            val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
+//                tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED
+//                bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+//                rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+//                continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+//                keyType = PeerConnection.KeyType.ECDSA
+//            }
+//
+//            peerConnection = factory?.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+//                override fun onSignalingChange(state: PeerConnection.SignalingState?) {
+//                    Log.d(TAG, "Signaling state changed: $state")
+//                }
+//
+//                override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+//                    Log.d(TAG, "ICE connection state changed: $state")
+//                }
+//
+//                override fun onConnectionChange(state: PeerConnection.PeerConnectionState?) {
+//                    Log.d(TAG, "Connection state changed: $state")
+//                    state?.let { listener.onConnectionChange(it) }
+//                }
+//
+//                override fun onIceConnectionReceivingChange(receiving: Boolean) {
+//                    Log.d(TAG, "ICE connection receiving changed: $receiving")
+//                }
+//
+//                override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+//                    Log.d(TAG, "ICE gathering state changed: $state")
+//                }
+//
+//                override fun onIceCandidate(candidate: IceCandidate?) {
+//                    candidate?.let {
+//                        Log.d(TAG, "ICE candidate: ${it.sdp}")
+//                        sendIceCandidate(it)
+//                        listener.onIceCandidate(it)
+//                    }
+//                }
+//
+//                override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {
+//                    Log.d(TAG, "ICE candidates removed: ${candidates?.size}")
+//                }
+//
+//                override fun onAddStream(stream: MediaStream?) {
+//                    Log.d(TAG, "Remote stream added")
+//                    stream?.let { listener.onRemoteStream(it) }
+//                }
+//
+//                override fun onRemoveStream(stream: MediaStream?) {
+//                    Log.d(TAG, "Remote stream removed")
+//                }
+//
+//                override fun onDataChannel(dataChannel: DataChannel?) {
+//                    Log.d(TAG, "Data channel created")
+//                }
+//
+//                override fun onRenegotiationNeeded() {
+//                    Log.d(TAG, "Renegotiation needed")
+//                }
+//
+//                override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
+//                    Log.d(TAG, "Track added")
+//                }
+//            })
+//
+//            createLocalAudioTrack()
+//            Log.d(TAG, "PeerConnection created successfully")
+//
+//        } catch (e: Exception) {
+//            Log.e(TAG, "Failed to create PeerConnection", e)
+//            listener.onError("Failed to create peer connection: ${e.message}")
+//        }
+//    }
 
-            val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
-                tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED
-                bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
-                rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
-                continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-                keyType = PeerConnection.KeyType.ECDSA
+    fun createPeerConnection() {
+        val iceServers = listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+
+        val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
+        rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+
+        peerConnection = factory?.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+            override fun onSignalingChange(signalingState: PeerConnection.SignalingState) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onSignalingChange: $signalingState")
             }
 
-            peerConnection = factory?.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
-                override fun onSignalingChange(state: PeerConnection.SignalingState?) {
-                    Log.d(TAG, "Signaling state changed: $state")
-                }
+            override fun onIceConnectionChange(iceConnectionState: PeerConnection.IceConnectionState) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onIceConnectionChange: $iceConnectionState")
+            }
 
-                override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-                    Log.d(TAG, "ICE connection state changed: $state")
-                }
+            override fun onIceConnectionReceivingChange(b: Boolean) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onIceConnectionReceivingChange: $b")
+            }
 
-                override fun onConnectionChange(state: PeerConnection.PeerConnectionState?) {
-                    Log.d(TAG, "Connection state changed: $state")
-                    state?.let { listener.onConnectionChange(it) }
-                }
+            override fun onIceGatheringChange(iceGatheringState: PeerConnection.IceGatheringState) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onIceGatheringChange: $iceGatheringState")
+            }
 
-                override fun onIceConnectionReceivingChange(receiving: Boolean) {
-                    Log.d(TAG, "ICE connection receiving changed: $receiving")
+            override fun onIceCandidate(iceCandidate: IceCandidate) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onIceCandidate: $iceCandidate")
+                try {
+                    val candidateJson = JSONObject()
+                    candidateJson.put("sdpMid", iceCandidate.sdpMid)
+                    candidateJson.put("sdpMLineIndex", iceCandidate.sdpMLineIndex)
+                    candidateJson.put("candidate", iceCandidate.sdp)
+                    webSocketClient.trickle(candidateJson)
+                } catch (e: JSONException) {
+//                    Log.e(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "Error creating candidate JSON", e)
                 }
+            }
 
-                override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
-                    Log.d(TAG, "ICE gathering state changed: $state")
-                }
+            override fun onIceCandidatesRemoved(iceCandidates: Array<IceCandidate>) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onIceCandidatesRemoved")
+            }
 
-                override fun onIceCandidate(candidate: IceCandidate?) {
-                    candidate?.let {
-                        Log.d(TAG, "ICE candidate: ${it.sdp}")
-                        sendIceCandidate(it)
-                        listener.onIceCandidate(it)
+            override fun onAddStream(mediaStream: MediaStream) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onAddStream (deprecated): ${mediaStream.id}")
+            }
+
+            override fun onRemoveStream(mediaStream: MediaStream) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onRemoveStream: ${mediaStream.id}")
+            }
+
+            override fun onDataChannel(dataChannel: DataChannel) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onDataChannel: ${dataChannel.label()}")
+            }
+
+            override fun onRenegotiationNeeded() {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onRenegotiationNeeded")
+            }
+
+            override fun onAddTrack(rtpReceiver: RtpReceiver, mediaStreams: Array<MediaStream>) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onAddTrack")
+                if (rtpReceiver.track() is VideoTrack) {
+                    val remoteVideoTrack = rtpReceiver.track() as VideoTrack
+//                    remoteVideoTrack.addSink(remoteVideoView)
+                    if (mediaStreams.isNotEmpty()) {
+                        listener.onRemoteStream(mediaStreams[0])
                     }
                 }
+            }
 
-                override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {
-                    Log.d(TAG, "ICE candidates removed: ${candidates?.size}")
-                }
-
-                override fun onAddStream(stream: MediaStream?) {
-                    Log.d(TAG, "Remote stream added")
-                    stream?.let { listener.onRemoteStream(it) }
-                }
-
-                override fun onRemoveStream(stream: MediaStream?) {
-                    Log.d(TAG, "Remote stream removed")
-                }
-
-                override fun onDataChannel(dataChannel: DataChannel?) {
-                    Log.d(TAG, "Data channel created")
-                }
-
-                override fun onRenegotiationNeeded() {
-                    Log.d(TAG, "Renegotiation needed")
-                }
-
-                override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
-                    Log.d(TAG, "Track added")
-                }
-            })
-
-            createLocalAudioTrack()
-            Log.d(TAG, "PeerConnection created successfully")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create PeerConnection", e)
-            listener.onError("Failed to create peer connection: ${e.message}")
-        }
+            override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
+//                Log.d(com.example.notificationapp.PeerConnectionClient.Companion.TAG, "onConnectionChange: $newState")
+                listener.onConnectionChange(newState)
+            }
+        })
     }
 
     private fun createLocalAudioTrack() {
