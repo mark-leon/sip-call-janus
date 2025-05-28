@@ -200,6 +200,7 @@ class JanusSipWebSocketClient(
     private fun handleTrickleEvent(json: JSONObject) {
         // Handle ICE candidates if needed
         Log.d(TAG, "Trickle event received")
+
     }
 
     override fun onClose(code: Int, reason: String?, remote: Boolean) {

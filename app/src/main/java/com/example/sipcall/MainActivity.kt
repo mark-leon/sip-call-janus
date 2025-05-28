@@ -287,7 +287,7 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
                 )
                 peerConnectionClient?.createPeerConnection()
             }
-        }
+       }
     }
 
     override fun onCallRinging() {
