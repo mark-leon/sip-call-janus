@@ -131,64 +131,24 @@ class SipPeerConnectionClient(
         })
     }
 
-    fun startLocalVideo() {
-        videoCapturer = createCameraCapturer()
-        if (videoCapturer == null) {
-            listener.onError("Failed to create camera capturer")
-            return
-        }
-
-        surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBaseContext)
-
-        val videoSource = factory?.createVideoSource(videoCapturer!!.isScreencast)
-        videoCapturer?.initialize(surfaceTextureHelper, context, videoSource?.capturerObserver)
-        videoCapturer?.startCapture(640, 480, 30)
-
-        val videoTrack = factory?.createVideoTrack("ARDAMSv0", videoSource)
+    fun startLocalAudio() { // Rename from startLocalVideo
         val audioSource = factory?.createAudioSource(MediaConstraints())
         val audioTrack = factory?.createAudioTrack("ARDAMSa0", audioSource)
 
         localStream = factory?.createLocalMediaStream("ARDAMS")
-        localStream?.addTrack(videoTrack)
         localStream?.addTrack(audioTrack)
 
         val streamIds = Collections.singletonList("ARDAMS")
-        peerConnection?.addTrack(videoTrack, streamIds)
         peerConnection?.addTrack(audioTrack, streamIds)
 
-//        videoTrack?.addSink(localVideoView)
         listener.onLocalStream(localStream!!)
     }
 
-    private fun createCameraCapturer(): VideoCapturer? {
-        val enumerator = Camera2Enumerator(context)
-        val deviceNames = enumerator.deviceNames
 
-        for (deviceName in deviceNames) {
-            if (enumerator.isFrontFacing(deviceName)) {
-                val videoCapturer = enumerator.createCapturer(deviceName, null)
-                if (videoCapturer != null) {
-                    return videoCapturer
-                }
-            }
-        }
-
-        for (deviceName in deviceNames) {
-            if (!enumerator.isFrontFacing(deviceName)) {
-                val videoCapturer = enumerator.createCapturer(deviceName, null)
-                if (videoCapturer != null) {
-                    return videoCapturer
-                }
-            }
-        }
-
-        return null
-    }
 
     fun createOffer(peerUsername: String) {
         val sdpConstraints = MediaConstraints()
         sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-        sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
 
         peerConnection?.createOffer(object : SdpObserver {
             override fun onCreateSuccess(sessionDescription: SessionDescription) {
@@ -260,7 +220,6 @@ class SipPeerConnectionClient(
     private fun createAnswer() {
         val sdpConstraints = MediaConstraints()
         sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-        sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
 
         peerConnection?.createAnswer(object : SdpObserver {
             override fun onCreateSuccess(sessionDescription: SessionDescription) {
@@ -334,19 +293,6 @@ class SipPeerConnectionClient(
             pc.close()
         }
         peerConnection = null
-
-        videoCapturer?.let { vc ->
-            try {
-                vc.stopCapture()
-                vc.dispose()
-            } catch (e: InterruptedException) {
-                Log.e(TAG, "Error stopping video capture", e)
-            }
-        }
-        videoCapturer = null
-
-        surfaceTextureHelper?.dispose()
-        surfaceTextureHelper = null
 
         localStream?.dispose()
         localStream = null

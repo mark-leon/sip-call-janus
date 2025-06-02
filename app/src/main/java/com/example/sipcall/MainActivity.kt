@@ -218,6 +218,7 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusListener,
                 this
             )
             peerConnectionClient?.createPeerConnection()
+            peerConnectionClient?.startLocalAudio()
         }
 
         peerConnectionClient?.createOffer(fullTargetUri)
