@@ -1,5 +1,6 @@
 package com.example.sipcall
 
+
 import android.util.Log
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
@@ -8,25 +9,24 @@ import org.json.JSONObject
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class JanusSipWebSocketClient(
     serverUri: URI,
-    private val listener: JanusSipListener,
+    private val lifecycleOwner: LifecycleOwner,
+    private val listener: JanusListener,
+
     httpHeaders: Map<String, String> = emptyMap()
 ) : WebSocketClient(serverUri, httpHeaders) {
 
-    interface JanusSipListener {
+    interface JanusListener {
         fun onJanusConnected()
         fun onJanusDisconnected()
         fun onJanusError(error: String)
         fun onJanusEvent(event: JSONObject)
-        fun onSipRegistered()
-        fun onSipRegistrationFailed(error: String)
-        fun onIncomingCall(caller: String)
-        fun onCallRinging()
-        fun onCallProceeding(code: Int)
-        fun onCallAccepted(username: String)
-        fun onCallHangup(code: Int, reason: String)
     }
 
     companion object {
@@ -39,6 +39,7 @@ class JanusSipWebSocketClient(
     private var isSessionCreated = false
     private var isPluginAttached = false
     private var currentCallId: String? = null
+
 
     // SIP Configuration - Updated to match working payload format
     private var sipUsername: String = ""      // This will be "sip:1007@103.209.42.30"
@@ -77,15 +78,10 @@ class JanusSipWebSocketClient(
         when (json.getString("janus")) {
             "success" -> handleSuccessResponse(json)
             "error" -> handleErrorResponse(json)
-            "event" -> handleEventResponse(json)
-            "webrtcup" -> listener.onJanusEvent(json)
-            "media" -> listener.onJanusEvent(json)
-            "hangup" -> handleHangupResponse(json)
-            "trickle" -> handleTrickleEvent(json)
+            "event" -> {}
         }
     }
 
-    @Throws(JSONException::class)
     private fun handleSuccessResponse(json: JSONObject) {
         if (json.has("data") && json.getJSONObject("data").has("id")) {
             if (!json.has("session_id")) {
@@ -93,13 +89,15 @@ class JanusSipWebSocketClient(
                 sessionId = json.getJSONObject("data").getLong("id")
                 isSessionCreated = true
                 Log.d(TAG, "Session created: $sessionId")
+                startKeepAlive()
                 attachSipPlugin()
+
             } else {
                 // Plugin attachment success
                 handleId = json.getJSONObject("data").getLong("id")
                 isPluginAttached = true
                 Log.d(TAG, "SIP Plugin attached, handle ID: $handleId")
-                registerSipUser()
+                register()
             }
         }
     }
@@ -111,96 +109,6 @@ class JanusSipWebSocketClient(
         val errorMsg = "Janus error ($error): $reason"
         Log.e(TAG, errorMsg)
         listener.onJanusError(errorMsg)
-    }
-
-    @Throws(JSONException::class)
-    private fun handleEventResponse(json: JSONObject) {
-        if (json.has("plugindata")) {
-            val plugindata = json.getJSONObject("plugindata")
-            val plugin = plugindata.getString("plugin")
-
-            if (plugin == "janus.plugin.sip") {
-                val data = plugindata.getJSONObject("data")
-
-                if (data.has("sip") && data.getString("sip") == "event") {
-                    val result = data.getJSONObject("result")
-                    val event = result.getString("event")
-
-                    if (data.has("call_id")) {
-                        currentCallId = data.getString("call_id")
-                    }
-
-                    handleSipEvent(event, result, json)
-                }
-            }
-        }
-    }
-
-    @Throws(JSONException::class)
-    private fun handleSipEvent(event: String, result: JSONObject, fullJson: JSONObject) {
-        when (event) {
-            "registered" -> {
-                Log.d(TAG, "SIP Registration successful")
-                listener.onSipRegistered()
-            }
-            "registration_failed" -> {
-                val code = result.optInt("code", 0)
-                val reason = result.optString("reason", "Unknown error")
-                Log.e(TAG, "SIP Registration failed: $code - $reason")
-                listener.onSipRegistrationFailed("$code - $reason")
-            }
-            "incomingcall" -> {
-                val caller = result.optString("username", "Unknown caller")
-                Log.d(TAG, "Incoming call from: $caller")
-                listener.onIncomingCall(caller)
-
-                // Handle incoming call JSEP if present
-                if (fullJson.has("jsep")) {
-                    // This will trigger the peer connection to handle the offer
-                }
-            }
-            "calling" -> {
-                currentCallId = result.optString("call_id", "")
-                Log.d(TAG, "Call initiated, call_id: $currentCallId")
-            }
-            "ringing" -> {
-                Log.d(TAG, "Call is ringing")
-                listener.onCallRinging()
-            }
-            "proceeding" -> {
-                val code = result.optInt("code", 0)
-                Log.d(TAG, "Call proceeding with code: $code")
-                listener.onCallProceeding(code)
-            }
-            "accepted" -> {
-                val username = result.optString("username", "Unknown")
-                Log.d(TAG, "Call accepted by: $username")
-                listener.onCallAccepted(username)
-            }
-            "hangup" -> {
-                val code = result.optInt("code", 0)
-                val reason = result.optString("reason", "Unknown reason")
-                Log.d(TAG, "Call hangup: $code - $reason")
-                listener.onCallHangup(code, reason)
-            }
-            else -> {
-                Log.d(TAG, "Unhandled SIP event: $event")
-            }
-        }
-    }
-
-    @Throws(JSONException::class)
-    private fun handleHangupResponse(json: JSONObject) {
-        val reason = json.optString("reason", "Unknown reason")
-        Log.d(TAG, "Janus hangup: $reason")
-        // This will be handled by the hangup event from plugin data
-    }
-
-    @Throws(JSONException::class)
-    private fun handleTrickleEvent(json: JSONObject) {
-        // Handle ICE candidates if needed
-        Log.d(TAG, "Trickle event received")
-
     }
 
     override fun onClose(code: Int, reason: String?, remote: Boolean) {
@@ -225,16 +133,19 @@ class JanusSipWebSocketClient(
         handleId = 0
         isSessionCreated = false
         isPluginAttached = false
-        currentCallId = null
     }
 
     fun generateTransactionId(): String {
         return "txn-" + UUID.randomUUID().toString().substring(0, 8)
     }
 
-    fun getSessionId(): Long = sessionId
-    fun getHandleId(): Long = handleId
-    fun getCurrentCallId(): String? = currentCallId
+    fun getSessionId(): Long {
+        return sessionId
+    }
+
+    fun getHandleId(): Long {
+        return handleId
+    }
 
     private fun createSession() {
         try {
@@ -265,7 +176,6 @@ class JanusSipWebSocketClient(
         }
     }
 
-    // Updated setSipConfig method to match the working payload format exactly
     fun setSipConfig(username: String, password: String, server: String, displayName: String) {
         // Format exactly as shown in working payload:
         // username = "1007", server = "103.209.42.30" -> sipUsername = "sip:1007@103.209.42.30"
@@ -283,8 +193,7 @@ class JanusSipWebSocketClient(
         Log.d(TAG, "  sipProxy: $sipProxy")
     }
 
-    // Updated registerSipUser method to match working payload format exactly
-    private fun registerSipUser() {
+    fun register() {
         try {
             val register = JSONObject()
             register.put("janus", "message")
@@ -314,26 +223,6 @@ class JanusSipWebSocketClient(
         }
     }
 
-    fun unregister() {
-        try {
-            val unregister = JSONObject()
-            unregister.put("janus", "message")
-            unregister.put("session_id", sessionId)
-            unregister.put("handle_id", handleId)
-            unregister.put("transaction", generateTransactionId())
-
-            val body = JSONObject()
-            body.put("request", "unregister")
-
-            unregister.put("body", body)
-            send(unregister.toString())
-            Log.d(TAG, "Sent SIP unregister request")
-        } catch (e: JSONException) {
-            Log.e(TAG, "Error creating unregister request", e)
-            listener.onJanusError("Error unregistering: ${e.message}")
-        }
-    }
-
     fun call(targetUri: String, jsep: JSONObject?) {
         try {
             val call = JSONObject()
@@ -358,28 +247,6 @@ class JanusSipWebSocketClient(
         }
     }
 
-    fun accept(jsep: JSONObject) {
-        try {
-            val accept = JSONObject()
-            accept.put("janus", "message")
-            accept.put("session_id", sessionId)
-            accept.put("handle_id", handleId)
-            accept.put("transaction", generateTransactionId())
-
-            val body = JSONObject()
-            body.put("request", "accept")
-
-            accept.put("body", body)
-            accept.put("jsep", jsep)
-
-            send(accept.toString())
-            Log.d(TAG, "Sent SIP accept request")
-        } catch (e: JSONException) {
-            Log.e(TAG, "Error creating accept request", e)
-            listener.onJanusError("Error accepting call: ${e.message}")
-        }
-    }
-
     fun hangup() {
         try {
             val hangup = JSONObject()
@@ -393,10 +260,20 @@ class JanusSipWebSocketClient(
 
             hangup.put("body", body)
             send(hangup.toString())
-            Log.d(TAG, "Sent SIP hangup request")
+            Log.d(TAG, "Sent hangup request")
         } catch (e: JSONException) {
             Log.e(TAG, "Error creating hangup request", e)
             listener.onJanusError("Error hanging up: ${e.message}")
+        }
+    }
+
+    fun sendMessage(message: String) {
+        if ( isOpen) {
+            Log.d(TAG, "Sending message: $message")
+            send(message)
+        } else {
+            Log.w(TAG, "WebSocket is not connected, cannot send message: $message")
+            listener.onJanusError("WebSocket is not connected, cannot send message.")
         }
     }
 
@@ -416,13 +293,32 @@ class JanusSipWebSocketClient(
         }
     }
 
-    fun sendMessage(message: String) {
-        if (isOpen) {
-            Log.d(TAG, "Sending message: $message")
-            send(message)
-        } else {
-            Log.w(TAG, "WebSocket is not connected, cannot send message: $message")
-            listener.onJanusError("WebSocket is not connected, cannot send message.")
+    private fun sendKeepAlive() {
+        try {
+            val keepAlive = JSONObject()
+            keepAlive.put("janus", "keepalive")
+            keepAlive.put("session_id", sessionId)
+            keepAlive.put("transaction", generateTransactionId())
+            send(keepAlive.toString())
+            Log.d(TAG, "Sent keepalive")
+        } catch (e: JSONException) {
+            Log.e(TAG, "Error creating keepalive", e)
+            listener.onJanusError("Error sending keepalive: ${e.message}")
         }
     }
+
+
+    private fun startKeepAlive() {
+        // Use the lifecycleScope from the provided lifecycleOwner
+        lifecycleOwner.lifecycleScope.launch {
+            while (sessionId != 0L) {
+                sendKeepAlive()
+                delay(20000)
+            }
+        }
+    }
+
+
+
+
 }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">sipcall</string>
+    <string name="attribution_tag">sip_call_tag</string>
 </resources>

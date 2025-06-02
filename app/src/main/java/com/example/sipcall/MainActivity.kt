@@ -23,8 +23,8 @@ import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import java.net.URI
 
-class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListener,
-    SipPeerConnectionClient.SipPeerConnectionListener {
+class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusListener,
+    SipPeerConnectionClient.PeerConnectionListener {
 
     companion object {
         private const val TAG = "SipMainActivity"
@@ -84,8 +84,8 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
         // Set button listeners
         registerButton.setOnClickListener { registerSipUser() }
         unregisterButton.setOnClickListener { unregisterSipUser() }
-        callButton.setOnClickListener { makeCall() }
-        answerButton.setOnClickListener { answerCall() }
+        callButton.setOnClickListener { callPeer() }
+        answerButton.setOnClickListener { answerIncomingCall() }
         hangupButton.setOnClickListener { hangupCall() }
 
         // Set default values for testing
@@ -117,7 +117,8 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
         val permissions = arrayOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.INTERNET,
-            Manifest.permission.ACCESS_NETWORK_STATE
+            Manifest.permission.ACCESS_NETWORK_STATE,
+            Manifest.permission.MODIFY_AUDIO_SETTINGS
         )
 
         if (!hasPermissions(permissions)) {
@@ -143,7 +144,7 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
         if (requestCode == PERMISSION_REQUEST_CODE) {
             for (result in grantResults) {
                 if (result != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(this, "Audio permission is required for SIP calls", Toast.LENGTH_LONG)
+                    Toast.makeText(this, "All permissions are required for SIP calls", Toast.LENGTH_LONG)
                         .show()
                     finish()
                     return
@@ -164,7 +165,7 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
         val displayName = sipDisplayNameEditText.text.toString().trim()
 
         if (username.isEmpty() || password.isEmpty() || server.isEmpty()) {
-            statusTextView.text = "Please fill all SIP configuration fields"
+            statusTextView.text = "Please fill in all SIP configuration fields"
             return
         }
 
@@ -174,14 +175,14 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
                 val serverUri = URI("wss://janus.arafinahmed.com/")
                 val httpHeaders = mapOf("Sec-WebSocket-Protocol" to "janus-protocol")
 
-                runOnUiThread { statusTextView.text = "Connecting to Janus server..." }
+                runOnUiThread { statusTextView.text = "Connecting to Janus SIP server..." }
 
-                webSocketClient = JanusSipWebSocketClient(serverUri, this@MainActivity, httpHeaders)
 
-                // IMPORTANT: Set SIP config BEFORE connecting - this ensures the values are set correctly
+                webSocketClient = JanusSipWebSocketClient(serverUri, lifecycleOwner = this, this@MainActivity, httpHeaders)
                 webSocketClient?.setSipConfig(username, password, server, displayName)
-
                 webSocketClient?.connectWithTimeout()
+
+
             } catch (e: Exception) {
                 runOnUiThread { statusTextView.text = "Connection failed: ${e.message}" }
                 Log.e(TAG, "WebSocket connection error", e)
@@ -190,22 +191,25 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
     }
 
     private fun unregisterSipUser() {
-        webSocketClient?.unregister()
         isRegistered = false
+        currentSipUser = null
+        statusTextView.text = "Unregistered from SIP server"
         updateButtonStates(false, false)
-        statusTextView.text = "Unregistered"
     }
 
-    private fun makeCall() {
+    private fun callPeer() {
         val targetSip = targetSipEditText.text.toString().trim()
         val server = sipServerEditText.text.toString().trim()
-
         if (targetSip.isEmpty()) {
             callStatusTextView.text = "Please enter target SIP address"
             return
         }
-
         val fullTargetUri = "sip:$targetSip@$server"
+
+        if (!isRegistered) {
+            callStatusTextView.text = "Please register first"
+            return
+        }
 
         if (peerConnectionClient == null) {
             peerConnectionClient = SipPeerConnectionClient(
@@ -217,12 +221,21 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
         }
 
         peerConnectionClient?.createOffer(fullTargetUri)
-        callStatusTextView.text = "Calling $fullTargetUri..."
+        callStatusTextView.text = "Calling $targetSip..."
         updateButtonStates(true, true)
     }
 
-    private fun answerCall() {
-        peerConnectionClient?.createAnswer()
+    private fun answerIncomingCall() {
+        if (peerConnectionClient == null) {
+            peerConnectionClient = SipPeerConnectionClient(
+                this,
+                webSocketClient!!,
+                this
+            )
+            peerConnectionClient?.createPeerConnection()
+        }
+
+
         callStatusTextView.text = "Answering call..."
         updateButtonStates(true, true)
         answerButton.isEnabled = false
@@ -230,6 +243,7 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
 
     private fun hangupCall() {
         webSocketClient?.hangup()
+
         peerConnectionClient?.close()
         peerConnectionClient = null
 
@@ -239,86 +253,165 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
         }
     }
 
-    // JanusSipListener implementations
+    // Janus WebSocket Listener Methods
     override fun onJanusConnected() {
-        runOnUiThread { statusTextView.text = "Connected to Janus server" }
+        runOnUiThread {
+            statusTextView.text = "Connected to Janus SIP server"
+            // Automatically register SIP after connection
+        }
     }
 
     override fun onJanusDisconnected() {
         runOnUiThread {
-            statusTextView.text = "Disconnected from Janus server"
+            statusTextView.text = "Disconnected from Janus SIP server"
             isRegistered = false
-            updateButtonStates(false, false)
             peerConnectionClient?.close()
             peerConnectionClient = null
+            updateButtonStates(false, false)
         }
     }
 
     override fun onJanusError(error: String) {
-        runOnUiThread { statusTextView.text = "Error: $error" }
+        runOnUiThread {
+            statusTextView.text = "Error: $error"
+            updateButtonStates(false, false)
+        }
     }
 
-    override fun onSipRegistered() {
+    override fun onJanusEvent(event: JSONObject) {
+        try {
+            if (event.has("janus")) {
+                when (event.getString("janus")) {
+                    "event" -> {
+                        if (event.has("plugindata")) {
+                            val plugindata = event.getJSONObject("plugindata")
+                            val data = plugindata.getJSONObject("data")
+
+                            if (data.has("result")) {
+                                val result = data.getJSONObject("result")
+                                if (result.has("event")) {
+                                    handlePluginEvent(event, result.getString("event"), result)
+                                }
+                            }
+                        }
+                    }
+                    "webrtcup" -> runOnUiThread {
+                        callStatusTextView.text = "Call established"
+                        updateButtonStates(true, true)
+                    }
+                    "hangup" -> handleHangup()
+                    "trickle" -> handleTrickleEvent(event)
+                }
+            }
+        } catch (e: JSONException) {
+            Log.e(TAG, "Error parsing Janus event", e)
+        }
+    }
+
+    @Throws(JSONException::class)
+    private fun handlePluginEvent(event: JSONObject, eventType: String, result: JSONObject) {
+        when (eventType) {
+            "registered" -> handleSipRegistered()
+            "registration_failed" -> handleSipRegistrationFailed(result)
+            "incomingcall" -> handleIncomingCall(event, result)
+            "calling" -> handleCalling()
+            "accepted" -> handleCallAccepted(event)
+            "declined" -> handleCallDeclined()
+            "hangup" -> handleHangup()
+            else -> Log.d(TAG, "Unhandled SIP event type: $eventType")
+        }
+    }
+
+    private fun handleSipRegistered() {
         runOnUiThread {
-            statusTextView.text = "SIP Registration successful"
+            statusTextView.text = "Successfully registered to SIP server"
             isRegistered = true
             updateButtonStates(true, false)
         }
     }
 
-    override fun onSipRegistrationFailed(error: String) {
+    private fun handleSipRegistrationFailed(result: JSONObject) {
+        val reason = try {
+            result.getString("reason")
+        } catch (e: JSONException) {
+            "Unknown error"
+        }
         runOnUiThread {
-            statusTextView.text = "SIP Registration failed: $error"
+            statusTextView.text = "SIP registration failed: $reason"
             isRegistered = false
             updateButtonStates(false, false)
         }
     }
 
-    override fun onIncomingCall(caller: String) {
+    @Throws(JSONException::class)
+    private fun handleIncomingCall(event: JSONObject, result: JSONObject) {
+        val caller = result.getString("username")
         runOnUiThread {
             callStatusTextView.text = "Incoming call from $caller"
             answerButton.isEnabled = true
+            updateButtonStates(true, false)
 
-            if (peerConnectionClient == null) {
-                peerConnectionClient = SipPeerConnectionClient(
-                    this@MainActivity,
-                    webSocketClient!!,
-                    this@MainActivity
-                )
-                peerConnectionClient?.createPeerConnection()
+            if (event.has("jsep")) {
+                try {
+                    val jsep = event.getJSONObject("jsep")
+                    if (peerConnectionClient == null) {
+                        peerConnectionClient = SipPeerConnectionClient(
+                            this@MainActivity,
+                            webSocketClient!!,
+                            this@MainActivity
+                        )
+                        peerConnectionClient?.createPeerConnection()
+                    }
+                    peerConnectionClient?.setRemoteDescription(jsep)
+                } catch (e: JSONException) {
+                    Log.e(TAG, "Error parsing JSEP", e)
+                    runOnUiThread { callStatusTextView.text = "Error parsing call data" }
+                }
             }
-       }
-    }
-
-    override fun onCallRinging() {
-        runOnUiThread { callStatusTextView.text = "Ringing..." }
-    }
-
-    override fun onCallProceeding(code: Int) {
-        runOnUiThread { callStatusTextView.text = "Call proceeding (Code: $code)" }
-    }
-
-    override fun onCallAccepted(username: String) {
-        runOnUiThread {
-            callStatusTextView.text = "Call accepted by $username"
-            updateButtonStates(true, true)
-            answerButton.isEnabled = false
         }
     }
 
-    override fun onCallHangup(code: Int, reason: String) {
+    private fun handleCalling() {
         runOnUiThread {
-            callStatusTextView.text = "Call ended: $reason (Code: $code)"
+            callStatusTextView.text = "Calling..."
+        }
+    }
+
+    @Throws(JSONException::class)
+    private fun handleCallAccepted(event: JSONObject) {
+        runOnUiThread {
+            callStatusTextView.text = "Call accepted"
+            updateButtonStates(true, true)
+        }
+        if (event.has("jsep")) {
+            val jsep = event.getJSONObject("jsep")
+            peerConnectionClient?.setRemoteDescription(jsep)
+        }
+    }
+
+    private fun handleCallDeclined() {
+        runOnUiThread {
+            callStatusTextView.text = "Call declined"
+            updateButtonStates(isRegistered, false)
+        }
+    }
+
+    private fun handleHangup() {
+        runOnUiThread {
+            callStatusTextView.text = "Call ended by remote peer"
             hangupCall()
         }
     }
 
-    override fun onJanusEvent(event: JSONObject) {
-        // Additional event handling if needed
-        Log.d(TAG, "Janus event: $event")
+    @Throws(JSONException::class)
+    private fun handleTrickleEvent(event: JSONObject) {
+        if (event.has("candidate")) {
+            val candidate = event.getJSONObject("candidate")
+            peerConnectionClient?.addIceCandidate(candidate)
+        }
     }
 
-    // SipPeerConnectionListener implementations
+    // Peer Connection Listener Methods
     override fun onLocalStream(stream: MediaStream) {
         runOnUiThread {
             Log.d(TAG, "Local audio stream added")
@@ -338,13 +431,22 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
     override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
         runOnUiThread {
             when (state) {
-                PeerConnection.PeerConnectionState.CONNECTED -> callStatusTextView.text = "Call Connected"
-                PeerConnection.PeerConnectionState.DISCONNECTED -> callStatusTextView.text = "Call Disconnected"
+                PeerConnection.PeerConnectionState.CONNECTED -> {
+                    callStatusTextView.text = "Connected"
+                    updateButtonStates(true, true)
+                }
+                PeerConnection.PeerConnectionState.DISCONNECTED -> {
+                    callStatusTextView.text = "Disconnected"
+                    updateButtonStates(isRegistered, false)
+                }
                 PeerConnection.PeerConnectionState.FAILED -> {
-                    callStatusTextView.text = "Call Connection failed"
+                    callStatusTextView.text = "Connection failed"
                     hangupCall()
                 }
-                PeerConnection.PeerConnectionState.CLOSED -> callStatusTextView.text = "Call Connection closed"
+                PeerConnection.PeerConnectionState.CLOSED -> {
+                    callStatusTextView.text = "Connection closed"
+                    updateButtonStates(isRegistered, false)
+                }
                 else -> {}
             }
         }
@@ -353,7 +455,6 @@ class MainActivity : AppCompatActivity(), JanusSipWebSocketClient.JanusSipListen
     override fun onError(error: String) {
         runOnUiThread {
             callStatusTextView.text = "Error: $error"
-            // Reset states on error
             updateButtonStates(isRegistered, false)
         }
     }
